@@ -1,0 +1,206 @@
+#!/usr/bin/env python
+# This file is part of dsoc.
+
+# dsoc is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# dsoc is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with dsoc.  If not, see <http://www.gnu.org/licenses/>.
+
+from sys import stderr, stdout
+from argparse import *
+
+if __name__=="__main__":
+    try:
+        ap=ArgumentParser(description='Control a Tekway/HANTEK DSO through USB')
+
+        ap.add_argument(
+            '--show-comm', '-c', action='store_true',
+            default=False, help='Show communication with DSO on stderr.')
+
+        ap.add_argument(
+            '--verbose', '-v', action='store_true',
+            default=False, help='Be verbose about the results of commands.')
+
+        sp=ap.add_subparsers()
+
+        def do_ping(dso, args):
+            res=dso.echo("PING")
+            exit(not res=="PING")
+
+        cmd_ping=sp.add_parser("ping", help="""
+Test two-way communication with scope. Return code of this command is zero
+when the scope is ready to accept data. """)
+        cmd_ping.set_defaults(func=do_ping)
+
+        def do_reset(dso, args):
+            dso.reset()
+        cmd_reset=sp.add_parser("reset", help="""
+Initialize/reset scope to power-on defaults. """)
+        cmd_reset.set_defaults(func=do_reset)
+
+        def do_cat(dso, args):
+            s=dso.get_file(args.filename)
+            of=stdout
+            if args.output!='-':
+                of=open(args.output, "w")
+            of.write(s)
+            of!=stdout and of.close()
+        cmd_cat=sp.add_parser("cat", help=
+                                   """
+Get a file from the scope's internal linux file system.
+""")
+        cmd_cat.add_argument(
+            '--output', '-o', help="Output file name. Use '-' for"
+            " stdout. That"
+            " is also the default.", default='-')
+        
+        cmd_cat.add_argument('filename',
+                                  help='Name of file on DSO.')
+        cmd_cat.set_defaults(func=do_cat)
+
+        def do_sh(dso, args):
+            s=dso.command(" ".join(args.cmdstring))
+            if args.output=='-':
+                stdout.write(s)
+            else:
+                open(args.output, "w").write(s)
+        cmd_sh=sp.add_parser("sh",
+                                  help="""
+Execute a command on the scope. WARNING: This command is VERY DANGEROUS. It is
+            easy to brick the scope and things like 'r m -rf /' are NOT
+            filtered. You have been warned!""")
+        cmd_sh.add_argument(
+            '--output', '-o', help="File name for command result output. Use '-' for stdout (default)", default='-')
+        
+        cmd_sh.add_argument('cmdstring', nargs='+',
+                                  help='Command string to execute.')
+        cmd_sh.set_defaults(func=do_sh)
+                
+        def do_screenshot(dso, args):
+            dso.screenshot(args.output)
+        cmd_screenshot=sp.add_parser("screenshot", help="""
+Take a screenshot on the scope and save it into a file.
+""")
+        cmd_screenshot.add_argument(
+            'output', help="""
+Name of output image file. Python Imaging
+Library (PIL) used for writing of screenshot. The file type is
+detected from the file name suffix.""")
+        cmd_screenshot.set_defaults(func=do_screenshot)
+
+        def do_beep(dso, args):
+            dso.beep(args.duration)
+        cmd_beep=sp.add_parser("beep", help="""
+Turn on the buzzer on the scope.
+""")
+        cmd_beep.add_argument(
+            '--duration', '-d', type=int, default=100, help="""
+Duration of beep in milliseconds. Default is 100.""")
+        cmd_beep.set_defaults(func=do_beep)
+
+        def settings_out(of, s, prefix=""):
+            for k, v in sorted(s.iteritems()):
+                print>>of, prefix+("%25s %18s %s" % (k, v[0], v[1]))
+
+        def do_samples(dso, args):
+            s=dso.samples(args.channel-1)
+            of=stdout
+
+            sets, ns=dso.settings()
+            if not args.no_settings:
+                print>>of, "# dsoc sample dump for HANTEK/TEKWAY DSO"
+                import time
+                print>>of, "# time %s | %10.1f" % (time.strftime(
+                        "%Y-%m-%d %H:%M:%S %Z%z"),
+                                            time.time())
+                print>>of, "# sampled-channel ", args.channel
+                settings_out(of, sets, "# ")
+            if args.output!='-':
+                of=open(args.output, "w")
+            if args.raw:
+                for y in s:
+                    print>>of, y
+            else:
+                from numpy import array, linspace
+                yofs=-sets["VERT-CH%d-POS" % args.channel][0]
+                yscale=(sets["VERT-CH%d-PROBE" % args.channel][0] *
+                        sets["VERT-CH%d-VB" % args.channel][0])
+
+                from dsoconn import yscale_div, xscale_div
+                ynew=yscale_div*yscale*(array(s, float)+yofs)/255.0
+                tend=xscale_div*sets["HORIZ-TB"][0]
+                if len(ynew) in [3200, 6400, 32000, 64000,
+                                 320000, 640000]:
+                    # enabled menu takes away 20% of space,
+                    # affecting number of read out samples.
+                    tend/=1.2
+                    
+                tnew=linspace(0, tend, len(ynew), endpoint=False)
+                
+                for t, y in zip(tnew, ynew):
+                    print>>of, "%15.9f %10g" % (t, y)
+                    
+            of!=stdout and of.close()
+            
+        cmd_samples=sp.add_parser("samples", help="""
+Acquire sample data from the scope. Unless selected otherwise, the output will
+be two-column ASCII data, with the first column being time in second and the
+second ADC values in volts.
+""")
+        cmd_samples.add_argument(
+            '--channel', '-n', type=int, default=1, help="Number of channel"
+            " to get the samples from [1, 2]")
+        cmd_samples.add_argument(
+            '--raw', '-r', action='store_true', default=False,
+            help="Get just"
+            " the raw samples as a single row of ASCII values."
+            )
+        cmd_samples.add_argument(
+            '--output', '-o', help="Output file name. Use '-' for"
+            " stdout. That"
+            " is also the default.", default='-')
+        cmd_samples.add_argument(
+            '--no-settings', '-q', help="""
+Do not put a settings section into
+the output data.
+""", action='store_true', default=False)
+        cmd_samples.set_defaults(func=do_samples)
+
+
+        def do_settings(dso, args):
+            s, ns=dso.settings()
+            of=stdout
+            if args.output!='-':
+                of=open(args.output, "w")
+
+            settings_out(of, s)
+            of!=stdout and of.close()
+
+        cmd_settings=sp.add_parser("settings", help="""
+Get a description of the current settings from the scope as a list of keys and
+values.""")
+        cmd_settings.add_argument(
+            '--output', '-o', help="""
+Output file name. Stdout is '-' (default).
+""",
+            default='-')
+        cmd_settings.set_defaults(func=do_settings)
+        
+        args=ap.parse_args()
+
+        from dsoconn import HTDSO
+        dso=HTDSO(verbose=args.show_comm)
+        args.func(dso, args)
+    except:
+        raise
+    # except Exception, e:
+    #     print>>stderr, "ERROR:", e
+    #     exit(2)
