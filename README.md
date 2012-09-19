@@ -1,13 +1,19 @@
-dsoc
-====
+          dsoc                                         
+============================
 
-'dsoc' is a small command line utility to remotely control a Tekway/Hantek DSO
+'dsoc' - DSO _control - is a small command line utility to remotely control a Tekway/Hantek DSO
 of the DSO5x02(B) series. It is written in python.
 
 Prerequisite python libraries: pyusb, numpy and PIL (to save screenshots) 
 
+The functionality is based on the reverse-engineered USB protocol which can be
+seen at
+[mikrocontroller.net](http://www.mikrocontroller.net/articles/Hantek_Protokoll)
+(German) and [elinux.org](http://elinux.org/Das_Oszi_Protocol) (English).
 
-It can be invoked as follows (from running ./dsoc --help):
+It can be invoked as it can be seen below (from running ./dsoc --help). Each
+sub-command has it's own help page which can be displayed by adding '--help'
+to the command line.
 
     usage: dsoc [-h] [--show-comm] [--verbose]
 		{ping,reset,cat,sh,screenshot,beep,samples,settings} ...
@@ -41,3 +47,6 @@ It can be invoked as follows (from running ./dsoc --help):
       --show-comm, -c       Show communication with DSO on stderr.
       --verbose, -v         Be verbose about the results of commands.
 
+
+--
+Onno Kortmann <onno@gmx.net>
