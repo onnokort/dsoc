@@ -114,6 +114,9 @@ Duration of beep in milliseconds. Default is 100.""")
             s=dso.samples(args.channel-1)
             of=stdout
 
+            if args.output!='-':
+                of=open(args.output, "w")
+            
             sets, ns=dso.settings()
             if not args.no_settings:
                 print>>of, "# dsoc sample dump for HANTEK/TEKWAY DSO"
@@ -123,8 +126,7 @@ Duration of beep in milliseconds. Default is 100.""")
                                             time.time())
                 print>>of, "# sampled-channel ", args.channel
                 settings_out(of, sets, "# ")
-            if args.output!='-':
-                of=open(args.output, "w")
+
             if args.raw:
                 for y in s:
                     print>>of, y
